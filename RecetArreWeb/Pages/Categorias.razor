@@ -1,5 +1,7 @@
 @page "/categorias"
-@using RecetArreWeb.DTOs
+@attribute [Authorize]
+@inject ICategoriaService categoriaService
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Gestión de Categorías</PageTitle>
 
@@ -18,6 +20,22 @@
             </div>
         </div>
     </div>
+
+    <!-- Alertas -->
+    @if (!string.IsNullOrEmpty(mensajeError))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong>Error:</strong> @mensajeError
+            <button type="button" class="btn-close" @onclick="() => mensajeError = string.Empty"></button>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(mensajeExito))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <strong>Éxito:</strong> @mensajeExito
+            <button type="button" class="btn-close" @onclick="() => mensajeExito = string.Empty"></button>
+        </div>
+    }
 
     <!-- Tarjeta con filtros y búsqueda -->
     <div class="row mb-3">
@@ -192,7 +210,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" @onclick="CerrarModal">Cancelar</button>
-                    <button type="button" class="btn btn-brand" @onclick="GuardarCategoria">
+                    <button type="button" class="btn btn-brand" @onclick="GuardarCategoria" disabled="@guardando">
                         @(categoriaEditando == null ? "Crear" : "Guardar cambios")
                     </button>
                 </div>
@@ -205,9 +223,12 @@
     private List<CategoriaDto>? categorias;
     private string busqueda = "";
     private bool mostrarModal = false;
+    private bool guardando = false;
     private CategoriaDto? categoriaEditando = null;
     private string nombreCategoria = "";
     private string descripcionCategoria = "";
+    private string mensajeError = string.Empty;
+    private string mensajeExito = string.Empty;
 
     private IEnumerable<CategoriaDto> CategoriasFiltradas
     {
@@ -232,16 +253,15 @@
 
     private async Task CargarCategorias()
     {
-        await Task.Delay(500);
-        
-        categorias = new List<CategoriaDto>
+        try
         {
-            new CategoriaDto { Id = 1, Nombre = "Postres", Descripcion = "Recetas dulces y deliciosas", CreadoUtc = DateTime.UtcNow.AddDays(-10) },
-            new CategoriaDto { Id = 2, Nombre = "Ensaladas", Descripcion = "Platos frescos y saludables", CreadoUtc = DateTime.UtcNow.AddDays(-8) },
-            new CategoriaDto { Id = 3, Nombre = "Sopas", Descripcion = "Caldos y cremas reconfortantes", CreadoUtc = DateTime.UtcNow.AddDays(-5) },
-            new CategoriaDto { Id = 4, Nombre = "Pastas", Descripcion = null, CreadoUtc = DateTime.UtcNow.AddDays(-3) },
-            new CategoriaDto { Id = 5, Nombre = "Carnes", Descripcion = "Recetas con carnes rojas y blancas", CreadoUtc = DateTime.UtcNow.AddDays(-1) }
-        };
+            categorias = await categoriaService.ObtenerTodas();
+        }
+        catch (Exception ex)
+        {
+            mensajeError = $"Error al cargar categorías: {ex.Message}";
+            categorias = new List<CategoriaDto>();
+        }
     }
 
     private void AbrirModalCrear()
@@ -249,6 +269,7 @@
         categoriaEditando = null;
         nombreCategoria = "";
         descripcionCategoria = "";
+        mensajeError = string.Empty;
         mostrarModal = true;
     }
 
@@ -257,6 +278,7 @@
         categoriaEditando = categoria;
         nombreCategoria = categoria.Nombre;
         descripcionCategoria = categoria.Descripcion ?? "";
+        mensajeError = string.Empty;
         mostrarModal = true;
     }
 
@@ -266,40 +288,103 @@
         categoriaEditando = null;
         nombreCategoria = "";
         descripcionCategoria = "";
+        mensajeError = string.Empty;
     }
 
     private async Task GuardarCategoria()
     {
-        if (string.IsNullOrWhiteSpace(nombreCategoria)) return;
-
-        if (categoriaEditando == null)
+        if (string.IsNullOrWhiteSpace(nombreCategoria))
         {
-            var nueva = new CategoriaDto
+            mensajeError = "El nombre es requerido";
+            return;
+        }
+
+        guardando = true;
+        mensajeError = string.Empty;
+        mensajeExito = string.Empty;
+
+        try
+        {
+            if (categoriaEditando == null)
             {
-                Id = (categorias?.Max(c => c.Id) ?? 0) + 1,
-                Nombre = nombreCategoria,
-                Descripcion = string.IsNullOrWhiteSpace(descripcionCategoria) ? null : descripcionCategoria,
-                CreadoUtc = DateTime.UtcNow
-            };
-            categorias?.Add(nueva);
-        }
-        else
-        {
-            categoriaEditando.Nombre = nombreCategoria;
-            categoriaEditando.Descripcion = string.IsNullOrWhiteSpace(descripcionCategoria) ? null : descripcionCategoria;
-        }
+                // Crear nueva categoría
+                var nuevaCategoria = new CategoriaCreacionDto
+                {
+                    Nombre = nombreCategoria,
+                    Descripcion = string.IsNullOrWhiteSpace(descripcionCategoria) ? null : descripcionCategoria
+                };
 
-        CerrarModal();
-        StateHasChanged();
+                var resultado = await categoriaService.Crear(nuevaCategoria);
+                
+                if (resultado != null)
+                {
+                    mensajeExito = "Categoría creada exitosamente";
+                    await CargarCategorias();
+                    CerrarModal();
+                }
+                else
+                {
+                    mensajeError = "No se pudo crear la categoría. Verifica que el nombre no esté duplicado.";
+                }
+            }
+            else
+            {
+                // Actualizar categoría existente
+                var categoriaModificacion = new CategoriaModificacionDto
+                {
+                    Nombre = nombreCategoria,
+                    Descripcion = string.IsNullOrWhiteSpace(descripcionCategoria) ? null : descripcionCategoria
+                };
+
+                var resultado = await categoriaService.Actualizar(categoriaEditando.Id, categoriaModificacion);
+                
+                if (resultado)
+                {
+                    mensajeExito = "Categoría actualizada exitosamente";
+                    await CargarCategorias();
+                    CerrarModal();
+                }
+                else
+                {
+                    mensajeError = "No se pudo actualizar la categoría";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            mensajeError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            guardando = false;
+        }
     }
 
-    private void EliminarCategoria(int id)
+    private async Task EliminarCategoria(int id)
     {
-        var categoria = categorias?.FirstOrDefault(c => c.Id == id);
-        if (categoria != null)
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "¿Estás seguro de eliminar esta categoría?"))
+            return;
+
+        mensajeError = string.Empty;
+        mensajeExito = string.Empty;
+
+        try
         {
-            categorias?.Remove(categoria);
-            StateHasChanged();
+            var resultado = await categoriaService.Eliminar(id);
+            
+            if (resultado)
+            {
+                mensajeExito = "Categoría eliminada exitosamente";
+                await CargarCategorias();
+            }
+            else
+            {
+                mensajeError = "No se pudo eliminar la categoría";
+            }
+        }
+        catch (Exception ex)
+        {
+            mensajeError = $"Error al eliminar: {ex.Message}";
         }
     }
 
