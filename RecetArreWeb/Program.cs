@@ -31,6 +31,8 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICategoriaService, CategoriaService>();
 builder.Services.AddScoped<IIngredienteService, IngredienteService>();
+builder.Services.AddScoped<IRecetaService, RecetaService>();
+builder.Services.AddScoped<IComentarioService, ComentarioService>();
 
 // Configurar autenticación
 builder.Services.AddAuthorizationCore();
